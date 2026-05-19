@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+
+{% block title %}Панель администратора{% endblock %}
+
+{% block content %}
+<div>
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h1 class="h4 mb-0">Управление заявками</h1>
+        <a href="{% url 'admin_logout' %}" class="btn btn-outline-secondary btn-sm">Выход</a>
+    </div>
+
+    <form method="get" class="card border-0 shadow-sm mb-3 admin-filter-card">
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-md-4">
+                    <label class="form-label small">Поиск</label>
+                    <input type="text" name="q" value="{{ search }}" class="form-control form-control-sm" placeholder="Логин, ФИО, курс">
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label small">Статус</label>
+                    <select name="status" class="form-select form-select-sm">
+                        <option value="">Все</option>
+                        {% for value, label in status_choices %}
+                            <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label small">Сортировка</label>
+                    <select name="sort" class="form-select form-select-sm">
+                        <option value="-created_at" {% if sort == '-created_at' %}selected{% endif %}>Сначала новые</option>
+                        <option value="created_at" {% if sort == 'created_at' %}selected{% endif %}>Сначала старые</option>
+                        <option value="user" {% if sort == 'user' %}selected{% endif %}>По логину (А-Я)</option>
+                        <option value="-user" {% if sort == '-user' %}selected{% endif %}>По логину (Я-А)</option>
+                        <option value="status" {% if sort == 'status' %}selected{% endif %}>По статусу</option>
+                    </select>
+                </div>
+                <div class="col-12 col-md-2">
+                    <button type="submit" class="btn btn-primary btn-sm w-100">Фильтр</button>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    <div class="card border-0 shadow-sm admin-table-card">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>#</th>
+                        <th>Пользователь</th>
+                        <th>Курс</th>
+                        <th>Старт</th>
+                        <th>Оплата</th>
+                        <th>Статус</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for app in page_obj %}
+                        <tr>
+                            <td>{{ app.pk }}</td>
+                            <td>
+                                <strong>{{ app.user.username }}</strong><br>
+                                <small class="text-muted">{{ app.user.profile.full_name }}</small>
+                            </td>
+                            <td>{{ app.course.name }}</td>
+                            <td>{{ app.start_date|date:"d.m.Y" }}</td>
+                            <td>{{ app.get_payment_method_display }}</td>
+                            <td>
+                                <span class="badge status-{{ app.status }}">{{ app.get_status_display }}</span>
+                            </td>
+                            <td>
+                                <button type="button" class="btn btn-outline-primary btn-sm"
+                                        data-bs-toggle="modal" data-bs-target="#modal-{{ app.pk }}">
+                                    Изменить
+                                </button>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="7" class="text-center text-muted py-4">Заявок не найдено</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% for app in page_obj %}
+        <div class="modal fade" id="modal-{{ app.pk }}" tabindex="-1" aria-labelledby="modalLabel-{{ app.pk }}" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="modalLabel-{{ app.pk }}">Заявка #{{ app.pk }}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                    </div>
+                    <form method="post" action="{% url 'admin_update_status' app.pk %}">
+                        {% csrf_token %}
+                        <div class="modal-body">
+                            <p class="small text-muted mb-2">
+                                {{ app.user.profile.full_name }} — {{ app.course.name }}
+                            </p>
+                            <label class="form-label" for="status-{{ app.pk }}">Новый статус</label>
+                            <select name="status" id="status-{{ app.pk }}" class="form-select">
+                                {% for value, label in status_choices %}
+                                    <option value="{{ value }}" {% if app.status == value %}selected{% endif %}>
+                                        {{ label }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Отмена</button>
+                            <button type="submit" class="btn btn-primary btn-sm">Сохранить</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+
+    {% if page_obj.has_other_pages %}
+        <nav class="mt-3" aria-label="Навигация по страницам">
+            <ul class="pagination pagination-sm justify-content-center mb-0">
+                {% if page_obj.has_previous %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page_obj.previous_page_number }}&q={{ search }}&status={{ status_filter }}&sort={{ sort }}">Назад</a>
+                    </li>
+                {% endif %}
+                <li class="page-item disabled">
+                    <span class="page-link">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+                </li>
+                {% if page_obj.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page_obj.next_page_number }}&q={{ search }}&status={{ status_filter }}&sort={{ sort }}">Вперёд</a>
+                    </li>
+                {% endif %}
+            </ul>
+        </nav>
+    {% endif %}
+</div>
+{% endblock %}
