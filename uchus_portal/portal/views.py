@@ -9,10 +9,24 @@ from django.views.decorators.http import require_http_methods, require_POST
 from .forms import AdminStatusForm, ApplicationForm, LoginForm, RegistrationForm, ReviewForm
 from .models import Application, Review
 
+# данные админа из задания
+ADMIN_LOGIN = 'Admin26'
+ADMIN_PASSWORD = 'Demo20'
+ADMIN_SESSION_KEY = 'portal_admin'
+
+
+def admin_required(view_func):
+    def wrapper(request, *args, **kwargs):
+        if not request.session.get(ADMIN_SESSION_KEY):
+            return redirect('admin_login')
+        return view_func(request, *args, **kwargs)
+
+    return wrapper
 
 
 def home(request):
-
+    if request.session.get(ADMIN_SESSION_KEY):
+        return redirect('admin_panel')
     if request.user.is_authenticated:
         return redirect('cabinet')
     return redirect('login')
@@ -107,3 +121,78 @@ def application_create_view(request):
 
     return render(request, 'application_form.html', {'form': form})
 
+
+def admin_login_view(request):
+    if request.method == 'POST':
+        username = request.POST.get('username', '').strip()
+        password = request.POST.get('password', '')
+        if username == ADMIN_LOGIN and password == ADMIN_PASSWORD:
+            request.session[ADMIN_SESSION_KEY] = True  # запоминаем что админ вошел
+            messages.success(request, 'Добро пожаловать в панель администратора.')
+            return redirect('admin_panel')
+        messages.error(request, 'Неверные учётные данные администратора.')
+
+    return render(request, 'admin_login.html')
+
+
+def admin_logout_view(request):
+    request.session.pop(ADMIN_SESSION_KEY, None)
+    messages.info(request, 'Выход из панели администратора.')
+    return redirect('admin_login')
+
+
+@admin_required
+def admin_panel_view(request):
+    queryset = Application.objects.select_related('user', 'user__profile', 'course', 'review')
+
+    status_filter = request.GET.get('status', '')
+    search = request.GET.get('q', '').strip()
+    sort = request.GET.get('sort', '-created_at')
+
+    allowed_sorts = {
+        'created_at': 'created_at',
+        '-created_at': '-created_at',
+        'status': 'status',
+        '-status': '-status',
+        'user': 'user__username',
+        '-user': '-user__username',
+    }
+    order_by = allowed_sorts.get(sort, '-created_at')
+
+    # фильтры для админки
+    if status_filter:
+        queryset = queryset.filter(status=status_filter)
+    if search:
+        queryset = queryset.filter(
+            Q(user__username__icontains=search)
+            | Q(user__profile__full_name__icontains=search)
+            | Q(course__name__icontains=search)
+        )
+
+    queryset = queryset.order_by(order_by)
+
+    paginator = Paginator(queryset, 5)  # по 5 заявок на странице
+    page_number = request.GET.get('page', 1)
+    page_obj = paginator.get_page(page_number)
+
+    return render(request, 'admin_panel.html', {
+        'page_obj': page_obj,
+        'status_filter': status_filter,
+        'search': search,
+        'sort': sort,
+        'status_choices': Application.STATUS_CHOICES,
+    })
+
+
+@admin_required
+@require_POST
+def admin_update_status_view(request, pk):
+    application = get_object_or_404(Application, pk=pk)
+    form = AdminStatusForm(request.POST)
+    if form.is_valid():
+        application.status = form.cleaned_data['status']
+        application.save()
+        messages.success(request, f'Статус заявки #{pk} обновлён.')
+    else:
+        messages.error(request, 'Не удалось обновить статус.')
+    return redirect(request.META.get('HTTP_REFERER', 'admin_panel'))
